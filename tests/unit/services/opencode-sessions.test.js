@@ -231,6 +231,38 @@ describe('opencode-sessions', () => {
       expect(proj2.displayName).toBe('Readable Project');
     });
 
+    test('resolves embedded host project metadata from an internal project directory', () => {
+      const hostDataDir = path.join(testDir, 'host-app', 'namespaces', 'release-stable', 'data');
+      const internalProjectDir = path.join(hostDataDir, 'projects', 'host-project-id');
+      const hostDbPath = path.join(hostDataDir, 'app.sqlite');
+      fs.mkdirSync(internalProjectDir, { recursive: true });
+
+      const hostDb = new DatabaseSync(hostDbPath);
+      hostDb.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          metadata_json TEXT
+        );
+      `);
+      hostDb.prepare('INSERT INTO projects (id, name, metadata_json) VALUES (?, ?, ?)').run(
+        'host-project-id',
+        'Readable Host Project',
+        JSON.stringify({ linkedDirs: ['/workspace/actual-project'] })
+      );
+      hostDb.close();
+
+      db.prepare('UPDATE session SET directory = ? WHERE project_id = ?')
+        .run(internalProjectDir, 'proj-1');
+      db.prepare('UPDATE project SET worktree = ? WHERE id = ?')
+        .run('/', 'proj-1');
+
+      const project = opencodeSessions.getProjects().find(p => p.name === 'proj-1');
+      expect(project.displayName).toBe('Readable Host Project');
+      expect(project.fullPath).toBe('/workspace/actual-project');
+      expect(project.path).toBe('/workspace/actual-project');
+    });
+
     test('respects project order', () => {
       opencodeSessions.saveProjectOrder(['proj-2', 'proj-1']);
       const projects = opencodeSessions.getProjects();

@@ -84,6 +84,48 @@ function parseJsonMaybe(raw, fallback = null) {
   }
 }
 
+function isAbsolutePath(value) {
+  return typeof value === 'string' && (
+    path.isAbsolute(value)
+    || /^[a-zA-Z]:[\\/]/.test(value)
+    || value.startsWith('\\\\')
+  );
+}
+
+function getEmbeddedProjectMetadata(directory) {
+  if (!isAbsolutePath(directory)) return null;
+
+  const projectDirectory = path.normalize(directory);
+  const projectsDirectory = path.dirname(projectDirectory);
+  if (path.basename(projectsDirectory) !== 'projects') return null;
+
+  const hostDataDirectory = path.dirname(projectsDirectory);
+  const hostDatabasePath = path.join(hostDataDirectory, 'app.sqlite');
+  if (!fs.existsSync(hostDatabasePath)) return null;
+
+  let hostDb;
+  try {
+    hostDb = new DatabaseSync(hostDatabasePath, { readOnly: true, timeout: 1000 });
+    const project = hostDb.prepare(
+      'SELECT name, metadata_json FROM projects WHERE id = ? LIMIT 1'
+    ).get(path.basename(projectDirectory));
+    if (!project) return null;
+
+    const metadata = parseJsonMaybe(project.metadata_json, {});
+    const linkedDirs = Array.isArray(metadata?.linkedDirs) ? metadata.linkedDirs : [];
+    const fullPath = linkedDirs.find(isAbsolutePath) || '';
+    const displayName = typeof project.name === 'string' && project.name.trim()
+      ? project.name.trim()
+      : (fullPath ? path.basename(fullPath) : path.basename(projectDirectory));
+
+    return { displayName, fullPath };
+  } catch (_) {
+    return null;
+  } finally {
+    try { hostDb?.close(); } catch (_) {}
+  }
+}
+
 function extractTextContent(content) {
   if (typeof content === 'string') {
     return content;
@@ -397,12 +439,14 @@ function normalizeSession(session, projectId) {
 
 function getProjects(_options = {}) {
   const projects = getProjectRows().map((project) => {
-    const fullPath = project.worktree && project.worktree !== '/'
+    const fallbackPath = project.worktree && project.worktree !== '/'
       ? project.worktree
       : project.session_directory || project.worktree || '/';
+    const embeddedProject = getEmbeddedProjectMetadata(fallbackPath);
+    const fullPath = embeddedProject?.fullPath || fallbackPath;
     return {
       name: project.id,
-      displayName: getProjectDisplayName({ ...project, worktree: fullPath }),
+      displayName: embeddedProject?.displayName || getProjectDisplayName({ ...project, worktree: fullPath }),
       fullPath,
       path: fullPath,
       sessionCount: Number(project.session_count) || 0,

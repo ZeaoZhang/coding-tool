@@ -70,4 +70,40 @@ describe('session snapshot worker', () => {
       displayName: 'gemini-project'
     });
   });
+
+  it('keeps OpenCode project metadata when sessions use an embedded host directory', async () => {
+    const listSessions = vi.fn(() => ({
+      status: 'ok',
+      data: [{
+        sessionId: 'opencode-session',
+        directory: '/Users/zhangzeao/Library/Application Support/Open Design/namespaces/release-stable/data/projects/project-id'
+      }]
+    }));
+    const getProjects = vi.fn(() => ({
+      status: 'ok',
+      data: [{
+        name: 'global',
+        displayName: 'Readable Host Project',
+        fullPath: '/workspace/actual-project',
+        path: '/workspace/actual-project'
+      }]
+    }));
+    const runtime = {
+      getDriver: vi.fn(() => ({ listSessions, getProjects }))
+    };
+
+    const result = await buildPayload({
+      source: 'opencode',
+      projectName: 'global',
+      options: { force: true },
+      runtime
+    });
+
+    expect(result.projectInfo).toMatchObject({
+      name: 'global',
+      fullPath: '/workspace/actual-project',
+      path: '/workspace/actual-project',
+      displayName: 'Readable Host Project'
+    });
+  });
 });

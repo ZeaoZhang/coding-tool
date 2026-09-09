@@ -149,8 +149,10 @@ async function buildOpenCodePayload(projectName, options = {}, runtime = null) {
     runtime
   );
   const firstDirectory = sessions.find(session => session.directory)?.directory;
-  const project = firstDirectory ? null : projects.find(p => p.name === projectName);
-  const fullPath = firstDirectory || project?.fullPath || projectName;
+  const project = projects.find(p => p.name === projectName) || null;
+  const projectPath = [project?.fullPath, project?.path]
+    .find(value => value && value !== '/');
+  const fullPath = projectPath || firstDirectory || project?.fullPath || project?.path || projectName;
 
   return {
     sessions,
